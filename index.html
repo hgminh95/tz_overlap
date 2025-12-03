@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timezone Team Scheduler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'work-core': '#10b981',   /* Green-500 */
+                        'work-stretch': '#f59e0b', /* Amber-500 */
+                        'off-hours': '#f1f5f9',    /* Slate-100 */
+                        'night': '#1f2937',        /* Gray-800 */
+                    },
+                    fontSize: {
+                        'xxs': '0.65rem',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Hide scrollbar for clean look, though we aim to fit content */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+        
+        /* Ensure date picker is clickable */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: auto;
+            height: auto;
+            color: transparent;
+            background: transparent;
+        }
+
+        .compact-cell {
+            min-width: 1.5rem; /* Prevent collapsing too small on mobile */
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col" onclick="closeDropdownOutside(event)">
+
+    <!-- Navbar -->
+    <nav class="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center shadow-sm sticky top-0 z-50">
+        <div class="flex items-center gap-2">
+            <div class="bg-indigo-600 text-white p-1.5 rounded-lg">
+                <i class="fa-solid fa-earth-americas text-lg"></i>
+            </div>
+            <h1 class="text-lg font-bold tracking-tight text-slate-800">SyncZone</h1>
+        </div>
+        <button onclick="resetApp()" class="text-xs text-slate-500 hover:text-red-500 transition-colors font-medium">
+            <i class="fa-solid fa-rotate-right mr-1"></i> Reset
+        </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col gap-5">
+
+        <!-- Controls Section -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5 z-40 relative">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                
+                <!-- Date Picker -->
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Date</label>
+                    <div class="relative group cursor-pointer" onclick="openDatePicker()">
+                        <div class="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none z-10">
+                            <i class="fa-regular fa-calendar text-slate-400 group-hover:text-indigo-500 transition-colors text-sm"></i>
+                        </div>
+                        <input type="text" id="dateDisplay" readonly
+                               class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-9 p-2 cursor-pointer shadow-sm font-mono pointer-events-none"
+                               placeholder="YYYY-MM-DD">
+                        <input type="date" id="meetingDate" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+                    </div>
+                </div>
+
+                <!-- Reference (Home) Timezone Selector -->
+                <div class="md:col-span-5 relative">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-1">
+                        Home Timezone <i class="fa-solid fa-house text-slate-300"></i>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <i class="fa-solid fa-clock text-slate-400 text-sm"></i>
+                        </div>
+                        <input type="text" id="baseTimezoneSearch" autocomplete="off"
+                               placeholder="Search home city..." 
+                               class="bg-indigo-50 border border-indigo-200 text-indigo-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-9 p-2 shadow-sm placeholder-indigo-300/70"
+                               oninput="handleSearchInput('base')" onfocus="handleSearchInput('base')" onkeydown="handleSearchKeydown(event, 'base')">
+                        
+                        <!-- Dropdown Results -->
+                        <div id="baseSearchResults" class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto suggestion-list"></div>
+                    </div>
+                </div>
+
+                <!-- Add Comparison Timezone Selector -->
+                <div class="md:col-span-5 relative">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-1">
+                        Compare With <i class="fa-solid fa-plus text-slate-300"></i>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <i class="fa-solid fa-search text-slate-400 text-sm"></i>
+                        </div>
+                        <input type="text" id="addTimezoneSearch" autocomplete="off"
+                               placeholder="Search city, country to add..." 
+                               class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-9 p-2 shadow-sm"
+                               oninput="handleSearchInput('add')" onfocus="handleSearchInput('add')" onkeydown="handleSearchKeydown(event, 'add')">
+                        
+                        <!-- Dropdown Results -->
+                        <div id="addSearchResults" class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto suggestion-list"></div>
+                    </div>
+                </div>
+
+                <!-- Legend -->
+                <div class="md:col-span-12 flex gap-3 text-[10px] text-slate-600 border-t border-slate-100 pt-3 mt-1">
+                    <div class="flex items-center gap-1.5"><div class="w-2.5 h-2.5 bg-work-core rounded-sm"></div> Work</div>
+                    <div class="flex items-center gap-1.5"><div class="w-2.5 h-2.5 bg-work-stretch rounded-sm"></div> Stretch</div>
+                    <div class="flex items-center gap-1.5"><div class="w-2.5 h-2.5 bg-off-hours border border-slate-300 rounded-sm"></div> Off</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overlap Suggestion Banner -->
+        <div id="overlapBanner" class="hidden bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-3">
+            <i class="fa-solid fa-check-circle text-emerald-600 text-lg"></i>
+            <div>
+                <p class="text-emerald-800 text-sm font-medium" id="overlapText">Best time to meet is between 2:00 PM and 4:00 PM.</p>
+            </div>
+        </div>
+
+        <!-- The Compact Grid -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+            <!-- Header (Hours) -->
+            <div class="flex border-b border-slate-200 bg-slate-50 w-full sticky top-0 z-20" id="gridHeader">
+                <div class="flex-none w-36 px-3 py-2 border-r border-slate-200 font-semibold text-slate-500 text-xs flex items-center bg-slate-50 sticky left-0 z-30">
+                    Location
+                </div>
+                <!-- Hours Generated by JS -->
+                <div class="flex w-full" id="hoursHeader"></div>
+            </div>
+
+            <!-- Rows Container -->
+            <div id="gridBody" class="w-full overflow-x-auto custom-scrollbar">
+                <!-- Rows injected here -->
+            </div>
+            
+            <!-- Summary Row -->
+            <div class="border-t-4 border-slate-200 bg-indigo-50" id="overlapRowContainer">
+                <!-- Overlap summary injected here -->
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // State
+        let selectedTimezones = [];
+        let baseTimezone = ""; // The "Home" timezone
+        let baseDate = new Date();
+        let allTimezones = [];
+        let focusedResultIndex = -1;
+        
+        const WORK_START = 9;
+        const WORK_END = 17;
+        const STRETCH_START = 7;
+        const STRETCH_END = 22;
+
+        // Expanded Mappings with Financial Hubs & Tourist Spots
+        const CITY_ALIASES = {
+            // USA & Americas
+            'America/New_York': ['NYC', 'USA', 'Stock Market', 'NYSE', 'NASDAQ', 'Wall Street', 'EST', 'EDT', 'Miami', 'Atlanta', 'DC', 'Detroit', 'Philadelphia', 'Boston'],
+            'America/Chicago': ['CME', 'CBOT', 'CST', 'CDT', 'Houston', 'Dallas', 'Austin', 'Texas', 'Kansas City', 'Minneapolis'],
+            'America/Denver': ['MST', 'MDT', 'Colorado', 'Utah', 'Salt Lake City'],
+            'America/Los_Angeles': ['PST', 'PDT', 'Silicon Valley', 'San Francisco', 'San Diego', 'Seattle', 'Vegas', 'Vancouver', 'Hollywood'],
+            'America/Phoenix': ['Arizona', 'MST'],
+            'America/Sao_Paulo': ['Brazil', 'B3', 'Rio', 'Brasilia'],
+            'America/Toronto': ['Canada', 'TSX', 'Ottawa', 'Montreal'],
+            
+            // Europe
+            'Europe/London': ['UK', 'LSE', 'GMT', 'BST', 'Edinburgh', 'Manchester'],
+            'Europe/Berlin': ['Germany', 'Frankfurt', 'DAX', 'Munich', 'CET'],
+            'Europe/Paris': ['France', 'Euronext', 'CAC', 'Lyon', 'CET'],
+            'Europe/Zurich': ['Switzerland', 'SIX', 'UBS', 'Geneva', 'CET'],
+            'Europe/Amsterdam': ['Netherlands', 'AEX', 'Rotterdam'],
+            'Europe/Madrid': ['Spain', 'IBEX', 'Barcelona'],
+            'Europe/Rome': ['Italy', 'Milan', 'Venice'],
+            'Europe/Moscow': ['Russia', 'MSK'],
+            'Europe/Istanbul': ['Turkey', 'Cappadocia'],
+            'Europe/Kyiv': ['Ukraine', 'Kiev'],
+
+            // Asia & Oceania
+            'Asia/Dubai': ['UAE', 'Abu Dhabi', 'GST'],
+            'Asia/Kolkata': ['India', 'IST', 'Mumbai', 'Sensex', 'Bangalore', 'Delhi'],
+            'Asia/Bangkok': ['Thailand', 'Phuket', 'ICT', 'Hanoi', 'Vietnam'],
+            'Asia/Jakarta': ['Indonesia', 'WIB'],
+            'Asia/Makassar': ['Bali', 'Denpasar', 'WITA'], 
+            'Asia/Singapore': ['SG', 'SGX', 'SGT', 'Changi'],
+            'Asia/Hong_Kong': ['HK', 'HKEX', 'HKT'],
+            'Asia/Shanghai': ['China', 'Beijing', 'SSE', 'Shenzhen', 'CST'],
+            'Asia/Tokyo': ['Japan', 'JPX', 'Nikkei', 'JST', 'Kyoto'],
+            'Asia/Seoul': ['Korea', 'KRX', 'KST'],
+            'Australia/Sydney': ['ASX', 'AEST', 'AEDT', 'Melbourne'],
+            'Pacific/Auckland': ['NZ', 'Wellington', 'NZST'],
+            
+            // Africa
+            'Africa/Johannesburg': ['South Africa', 'JSE', 'Cape Town', 'SAST'],
+            'Africa/Cairo': ['Egypt', 'EET'],
+            'Africa/Lagos': ['Nigeria', 'WAT']
+        };
+
+        // DOM Elements
+        const addTimezoneSearch = document.getElementById('addTimezoneSearch');
+        const baseTimezoneSearch = document.getElementById('baseTimezoneSearch');
+        const addSearchResults = document.getElementById('addSearchResults');
+        const baseSearchResults = document.getElementById('baseSearchResults');
+        
+        const gridBody = document.getElementById('gridBody');
+        const hoursHeader = document.getElementById('hoursHeader');
+        const meetingDateInput = document.getElementById('meetingDate');
+        const dateDisplayInput = document.getElementById('dateDisplay');
+        const overlapRowContainer = document.getElementById('overlapRowContainer');
+        const overlapBanner = document.getElementById('overlapBanner');
+        const overlapText = document.getElementById('overlapText');
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeTimezoneList();
+            
+            const today = new Date().toISOString().split('T')[0];
+            meetingDateInput.value = today;
+            dateDisplayInput.value = today;
+            
+            // Default Base: Browser Local
+            const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            setBaseTimezone(localTz);
+            
+            // Default Selected: Browser Local (so you see at least one row)
+            addTimezone(localTz);
+        });
+
+        function openDatePicker() {
+            try { meetingDateInput.showPicker(); } 
+            catch (err) { meetingDateInput.focus(); meetingDateInput.click(); }
+        }
+
+        meetingDateInput.addEventListener('change', (e) => {
+            if (!e.target.value) return;
+            baseDate = new Date(e.target.value);
+            dateDisplayInput.value = e.target.value;
+            render();
+        });
+
+        function initializeTimezoneList() {
+            let raw = [];
+            try { raw = Intl.supportedValuesOf('timeZone'); } 
+            catch (e) { raw = ['UTC', 'America/New_York', 'Europe/London', 'Asia/Singapore', 'Asia/Tokyo']; }
+
+            ['Asia/Singapore', 'America/New_York', 'Europe/London', 'Asia/Tokyo'].forEach(z => {
+                if(!raw.includes(z)) raw.push(z);
+            });
+
+            const normAliases = {};
+            Object.keys(CITY_ALIASES).forEach(k => normAliases[k.toLowerCase()] = CITY_ALIASES[k]);
+
+            allTimezones = raw.map(tz => {
+                const parts = tz.split('/');
+                const city = parts[parts.length - 1].replace(/_/g, ' ');
+                const region = parts[0];
+                let aliases = CITY_ALIASES[tz] || normAliases[tz.toLowerCase()] || [];
+                const searchString = `${tz} ${city} ${region} ${aliases.join(' ')}`.toLowerCase();
+
+                return { id: tz, display: `${city} (${region})`, searchString, aliases };
+            }).sort((a, b) => a.display.localeCompare(b.display));
+        }
+
+        // --- Search Logic Generic ---
+
+        function handleSearchInput(type) {
+            const input = type === 'base' ? baseTimezoneSearch : addTimezoneSearch;
+            const results = type === 'base' ? baseSearchResults : addSearchResults;
+            const query = input.value.toLowerCase();
+            
+            focusedResultIndex = -1;
+            if (!query) { results.classList.add('hidden'); return; }
+
+            const matches = allTimezones.filter(item => {
+                if (type === 'add' && selectedTimezones.includes(item.id)) return false;
+                return item.searchString.includes(query);
+            }).slice(0, 50);
+
+            renderSearchResults(matches, query, type);
+        }
+
+        function renderSearchResults(matches, query, type) {
+            const results = type === 'base' ? baseSearchResults : addSearchResults;
+            results.innerHTML = '';
+            
+            if (matches.length === 0) {
+                results.innerHTML = '<div class="p-3 text-xs text-slate-500 text-center italic">No matches found</div>';
+            } else {
+                matches.forEach((match) => {
+                    const div = document.createElement('div');
+                    div.className = "p-2.5 px-3 text-sm text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group";
+                    div.setAttribute('data-tz', match.id);
+                    
+                    // On Click Action
+                    div.onclick = () => {
+                        if(type === 'base') setBaseTimezone(match.id);
+                        else addTimezone(match.id);
+                        
+                        // Clear input
+                        const input = type === 'base' ? baseTimezoneSearch : addTimezoneSearch;
+                        input.value = '';
+                        results.classList.add('hidden');
+                    };
+                    
+                    let aliasMatch = "";
+                    const matchedAlias = match.aliases.find(a => a.toLowerCase().includes(query));
+                    if (matchedAlias && !match.display.toLowerCase().includes(query)) {
+                        aliasMatch = `<span class="text-[10px] text-indigo-500 ml-2 italic">Matches "${matchedAlias}"</span>`;
+                    }
+
+                    div.innerHTML = `
+                        <div class="flex flex-col">
+                            <div class="font-medium">${match.display} ${aliasMatch}</div>
+                            <div class="text-[10px] text-slate-400 font-mono">${match.id}</div>
+                        </div>
+                        <i class="fa-solid ${type === 'base' ? 'fa-check' : 'fa-plus'} text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                    `;
+                    results.appendChild(div);
+                });
+            }
+            results.classList.remove('hidden');
+        }
+
+        function handleSearchKeydown(e, type) {
+            const results = type === 'base' ? baseSearchResults : addSearchResults;
+            const items = results.querySelectorAll('div[data-tz]');
+            if (items.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                focusedResultIndex = Math.min(focusedResultIndex + 1, items.length - 1);
+                updateFocus(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                focusedResultIndex = Math.max(focusedResultIndex - 1, 0);
+                updateFocus(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (focusedResultIndex >= 0) {
+                    const tz = items[focusedResultIndex].getAttribute('data-tz');
+                    if(type === 'base') {
+                         setBaseTimezone(tz);
+                         baseTimezoneSearch.value = '';
+                    } else {
+                         addTimezone(tz);
+                         addTimezoneSearch.value = '';
+                    }
+                    results.classList.add('hidden');
+                }
+            } else if (e.key === 'Escape') {
+                results.classList.add('hidden');
+            }
+        }
+
+        function updateFocus(items) {
+            items.forEach((item, index) => {
+                if (index === focusedResultIndex) {
+                    item.classList.add('bg-indigo-100');
+                    item.scrollIntoView({ block: 'nearest' });
+                } else {
+                    item.classList.remove('bg-indigo-100');
+                }
+            });
+        }
+
+        function closeDropdownOutside(e) {
+            if (!addTimezoneSearch.contains(e.target) && !addSearchResults.contains(e.target)) {
+                addSearchResults.classList.add('hidden');
+            }
+            if (!baseTimezoneSearch.contains(e.target) && !baseSearchResults.contains(e.target)) {
+                baseSearchResults.classList.add('hidden');
+            }
+        }
+
+        // --- Core App Logic ---
+
+        function setBaseTimezone(tz) {
+            baseTimezone = tz;
+            // Update the display text in input to show selected
+            const parts = tz.split('/');
+            const city = parts[parts.length - 1].replace(/_/g, ' ');
+            baseTimezoneSearch.placeholder = `${city} (${parts[0]})`;
+            render();
+        }
+
+        function addTimezone(tz) {
+            if(selectedTimezones.includes(tz)) return;
+            selectedTimezones.push(tz);
+            render();
+        }
+
+        function removeTimezone(tz) {
+            selectedTimezones = selectedTimezones.filter(t => t !== tz);
+            render();
+        }
+
+        function resetApp() {
+            selectedTimezones = [];
+            const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            setBaseTimezone(localTz);
+            addTimezone(localTz);
+        }
+
+        function getHourStatus(hour) {
+            if (hour >= WORK_START && hour < WORK_END) return 'core';
+            if ((hour >= STRETCH_START && hour < WORK_START) || (hour >= WORK_END && hour < STRETCH_END)) return 'stretch';
+            return 'night';
+        }
+
+        function getCellColor(status) {
+            switch(status) {
+                case 'core': return 'bg-work-core text-white font-bold';
+                case 'stretch': return 'bg-work-stretch text-white font-medium';
+                default: return 'bg-off-hours text-slate-300';
+            }
+        }
+
+        // Helper to find the absolute timestamp for "00:00" in the baseTimezone on the selected date
+        function getBaseMidnightTimestamp() {
+            // Start with a UTC midnight guess
+            const dateStr = meetingDateInput.value; // YYYY-MM-DD
+            if(!dateStr) return new Date().getTime();
+
+            // We construct a date string and let the browser parse it relative to the specific timezone
+            // To do this without libraries, we iterate.
+            // 1. Get UTC timestamp for this date
+            const utc = new Date(dateStr + 'T00:00:00Z').getTime();
+            
+            // 2. Format this timestamp in the target zone to see the offset
+            // Actually, simplest way:
+            // Create a date, set time to 12:00, then find offset? 
+            // Let's use the method of finding the shift.
+            
+            // Heuristic:
+            // Calculate offset of baseTimezone relative to UTC
+            // Intl.DateTimeFormat can return "GMT-05:00" strings but parsing is annoying.
+            
+            // Iterative approach:
+            // 1. Guess Timestamp = UTC midnight
+            let guess = utc;
+            // 2. Check what hour this guess is in target zone
+            const getHourInZone = (ts) => {
+                const f = new Intl.DateTimeFormat('en-US', { timeZone: baseTimezone, hour: 'numeric', hour12: false, day: 'numeric' });
+                const parts = f.formatToParts(new Date(ts));
+                return { 
+                    h: parseInt(parts.find(p => p.type === 'hour').value),
+                    d: parts.find(p => p.type === 'day').value
+                };
+            };
+
+            // Loop a few times to align to 00:00
+            for(let i=0; i<3; i++) {
+                const {h} = getHourInZone(guess);
+                if(h === 0) break;
+                // If we are at hour 5, we need to subtract 5 hours. 
+                // If we are at hour 19 (7pm previous day), we need to add 5 hours.
+                let diff = -h;
+                if(h > 12) diff = 24 - h;
+                guess += diff * 3600 * 1000;
+            }
+            
+            // Fine tune to exact start of hour (minutes/seconds 0)
+            // usually unnecessary if we step by hours, but DST might shift by 30 mins (India)
+            // Just rounding to nearest hour is usually enough for this visualizer.
+            return guess;
+        }
+
+        function render() {
+            gridBody.innerHTML = '';
+            hoursHeader.innerHTML = '';
+            overlapRowContainer.innerHTML = '';
+
+            if (selectedTimezones.length === 0) return;
+
+            // 1. Calculate Start Time (Midnight in Base Timezone)
+            const startTimestamp = getBaseMidnightTimestamp();
+
+            // 2. Header (Compact)
+            const headerRow = document.createElement('div');
+            headerRow.className = "flex w-full"; 
+            
+            for (let i = 0; i < 24; i++) {
+                const div = document.createElement('div');
+                div.className = "flex-1 py-2 text-[10px] font-bold text-slate-400 text-center border-r border-slate-100 compact-cell";
+                div.textContent = i; 
+                headerRow.appendChild(div);
+            }
+            hoursHeader.appendChild(headerRow);
+
+            // 3. Data Rows
+            const matrix = []; 
+            selectedTimezones.forEach((tz, tzIndex) => {
+                const row = document.createElement('div');
+                row.className = "flex w-full border-b border-slate-100 hover:bg-slate-50 transition-colors group";
+
+                const label = document.createElement('div');
+                label.className = "flex-none w-36 px-3 py-2 bg-white flex flex-col justify-center border-r border-slate-200 sticky left-0 z-10 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.05)]";
+                
+                const parts = tz.split('/');
+                const city = parts[parts.length - 1].replace(/_/g, ' ');
+                
+                // For the "Current Time" display in the label, we just use real current time
+                const timeString = new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute:'2-digit', hour12: true });
+
+                label.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-slate-700 text-xs truncate pr-2" title="${tz}">${city}</span>
+                        ${selectedTimezones.length > 1 ? `<button onclick="removeTimezone('${tz}')" class="text-slate-300 hover:text-red-500"><i class="fa-solid fa-times"></i></button>` : ''}
+                    </div>
+                    <span class="text-[10px] text-indigo-600 font-mono mt-0.5">${timeString}</span>
+                `;
+                row.appendChild(label);
+
+                for (let i = 0; i < 24; i++) {
+                    // Current absolute time for this cell
+                    const timestamp = startTimestamp + (i * 3600 * 1000);
+                    
+                    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false });
+                    const hourInTz = parseInt(formatter.format(new Date(timestamp)));
+                    
+                    const status = getHourStatus(hourInTz);
+                    const colorClass = getCellColor(status);
+
+                    if (!matrix[i]) matrix[i] = [];
+                    matrix[i][tzIndex] = status;
+
+                    const cell = document.createElement('div');
+                    cell.className = `flex-1 py-2 text-center text-[10px] flex flex-col justify-center items-center border-r border-white/20 cursor-default compact-cell ${colorClass}`;
+                    cell.textContent = hourInTz;
+                    cell.title = `${city}: ${hourInTz}:00`;
+                    row.appendChild(cell);
+                }
+                gridBody.appendChild(row);
+            });
+
+            // 4. Overlap Row
+            const overlapRow = document.createElement('div');
+            overlapRow.className = "flex w-full";
+            
+            const overlapLabel = document.createElement('div');
+            overlapLabel.className = "flex-none w-36 px-3 py-2 bg-indigo-50 flex items-center border-r border-slate-200 sticky left-0 z-10";
+            overlapLabel.innerHTML = `<span class="font-bold text-indigo-900 text-xs">Overlap</span>`;
+            overlapRow.appendChild(overlapLabel);
+
+            let goodHours = [];
+            let stretchHours = [];
+
+            for (let i = 0; i < 24; i++) {
+                const hourStatuses = matrix[i];
+                let isCore = hourStatuses.every(s => s === 'core');
+                let isStretch = hourStatuses.every(s => s === 'core' || s === 'stretch');
+
+                const cell = document.createElement('div');
+                cell.className = "flex-1 py-1 border-r border-indigo-100 flex items-center justify-center compact-cell";
+
+                if (isCore) {
+                    cell.classList.add('bg-emerald-100');
+                    cell.innerHTML = '<i class="fa-solid fa-star text-emerald-600 text-[10px]"></i>';
+                    goodHours.push(i);
+                } else if (isStretch) {
+                    cell.classList.add('bg-amber-50');
+                    cell.innerHTML = '<i class="fa-solid fa-check text-amber-500 text-[10px]"></i>';
+                    stretchHours.push(i);
+                } else {
+                     cell.classList.add('bg-slate-100');
+                }
+                overlapRow.appendChild(cell);
+            }
+            overlapRowContainer.appendChild(overlapRow);
+
+            updateSummary(goodHours, stretchHours);
+        }
+
+        function updateSummary(good, stretch) {
+            // Get simplified city name of base timezone
+            const parts = baseTimezone.split('/');
+            const baseCity = parts[parts.length-1].replace(/_/g, ' ');
+
+            if (good.length > 0) {
+                overlapBanner.classList.remove('hidden');
+                overlapBanner.className = "bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-3";
+                overlapBanner.querySelector('i').className = "fa-solid fa-check-circle text-emerald-600 text-lg";
+                overlapText.innerHTML = `Great news! Perfect overlap at <strong>${getRanges(good)}</strong> (${baseCity} Time).`;
+            } else if (stretch.length > 0) {
+                overlapBanner.classList.remove('hidden');
+                overlapBanner.className = "bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3";
+                overlapBanner.querySelector('i').className = "fa-solid fa-triangle-exclamation text-amber-600 text-lg";
+                overlapText.innerHTML = `Workable overlap found at <strong>${getRanges(stretch)}</strong> (${baseCity} Time).`;
+            } else {
+                overlapBanner.classList.add('hidden');
+            }
+        }
+
+        function getRanges(hours) {
+            if (hours.length === 0) return "";
+            let start = hours[0], end = hours[0], ranges = [];
+            for(let i=1; i<hours.length; i++) {
+                if (hours[i] === end + 1) end = hours[i];
+                else { ranges.push(`${start}:00-${end+1}:00`); start = hours[i]; end = hours[i]; }
+            }
+            ranges.push(`${start}:00-${end+1}:00`);
+            return ranges.join(', ');
+        }
+    </script>
+</body>
+</html>
